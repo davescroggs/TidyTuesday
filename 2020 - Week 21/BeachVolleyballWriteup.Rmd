@@ -1,0 +1,386 @@
+---
+title: "Beach Vollyball - How long will this go on?"
+author: "David Scroggs"
+date: "22/05/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(modelr)
+library(broom)
+library(Hmisc)
+
+# vb_matches <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-05-19/vb_matches.csv', guess_max = 76000) %>%
+#     filter(!is.na(duration)) %>%
+#   mutate(
+#     Hrs = as.integer(str_extract(duration, regex("\\d+(?=\\:)"))),
+#     Mins = as.integer(str_extract(duration, regex("(?<=\\:)\\d+"))),
+#     Game_Time = Hrs * 60 + Mins)
+
+#saveRDS(vb_matches,"vb_matches.RDS")
+
+vb_matches <- readRDS("vb_matches.RDS")
+
+theme_set(theme_minimal() + theme(plot.title = element_text(hjust = 0.5)))
+
+```
+
+
+## Introduction
+
+I decided to start attempting a tidytuesday every other
+
+
+## EDA
+
+Quick, dirty EDA to get any idea of the types of factors that affect the game duraton.
+
+### Game Durations
+
+Game durations have a right hand tail.
+```{r}
+## Game Durations
+mean_dur <- mean(vb_matches$Game_Time)
+
+vb_matches %>% 
+  ggplot(aes(x = Game_Time)) +
+  geom_histogram(binwidth = 1,col = "black",fill = "dodgerblue") +
+  geom_vline(aes(xintercept = mean(Game_Time)), col = "red") +
+  annotate(geom = "curve", x = 75, y = 3000, xend = mean_dur, yend = 3000,
+           arrow = arrow(length = unit(2, "mm"))) +
+  annotate(geom = "label", x = 75, y = 3000, label = "mean game duration is ~44 minutes", hjust = "left") +
+  scale_x_continuous(breaks = seq(0,140,15)) +
+  labs(title = "Distribution of game duration",
+       y = "Counts",
+       x = "Game Time (minutes)")
+```
+
+
+There are `r sum(is.na(duration))` NA or undocumented game durations.
+
+### Duration by match type
+
+Excluding NA durations
+
+```{r}
+vb_matches %>% 
+  count(bracket,sort = TRUE) %>% 
+  ggplot(aes(y = fct_reorder(bracket,n),x = n)) +
+  geom_col(fill = "dodgerblue") +
+  labs(title = "Number of matches played in each bracket",
+       y = "",
+       x = "Number of matches")
+```
+
+Theres a quite a large number of small groups that I might look at lumping together later, depending on results. These are more managable numbers. We'll see if it makes a difference when modelling.
+
+```{r}
+vb_matches <- vb_matches %>% 
+  mutate(bracket_pooled = if_else(str_detect(bracket,"Pool"),"Pool match",bracket))
+  
+vb_matches %>%
+  count(bracket_pooled,sort = TRUE) %>% 
+  ggplot(aes(y = fct_reorder(bracket_pooled,n),x = n)) +
+  geom_col(fill = "dodgerblue") +
+  labs(title = "Number of matches played in each bracket",
+       y = "",
+       x = "Number of matches")
+```
+
+Distribution of game duration for different game brackets. It appears that finals matches have a higher mean duration that other brackets.
+
+```{r}
+
+vb_matches %>% 
+  filter(!is.na(duration)) %>% 
+  group_by(bracket_pooled) %>% mutate(mean_d = mean(duration)) %>% 
+  ggplot(aes(x = fct_reorder(bracket_pooled,mean_d),
+             y = Game_Time,
+             fill = fct_reorder(bracket_pooled,mean_d))) +
+  geom_boxplot() +
+  labs(title = "Distribution of game times for bracket type",
+    x = "Bracket",
+    y = "Game duration (mins)") +
+  coord_flip()
+```
+
+Finals games are, on averge, longer than other game types. This could be explained by a greater number of sets being played in finals.
+
+```{r}
+vb_matches %>% 
+  mutate(sets = str_extract_all(score,"\\d{1,2}") %>% 
+              map_dbl(~length(.x)/2)) %>% 
+  group_by(bracket_pooled,sets) %>% 
+  summarise(n = n()) %>%
+  mutate(pct = n/sum(n)) %>% 
+  ggplot(aes(y = bracket_pooled, x = pct,fill = factor(sets))) +
+  geom_col() +
+  scale_x_continuous(labels = scales::percent) +
+  labs(title = "Percentage of number of sets in each bracket game",
+       x = "Percentage",
+       y = "",
+       fill = "#Sets") +
+  scale_fill_brewer(palette="Set1")
+```
+
+
+## Yearly behaviour
+
+```{r}
+vb_matches %>% 
+  filter(!is.na(duration)) %>% 
+  group_by(year) %>% mutate(mean_d = mean(duration)) %>% 
+  ggplot(aes(x = fct_reorder(factor(year),mean_d),
+             y = Game_Time,
+             fill = fct_reorder(factor(year),mean_d))) +
+  geom_boxplot() +
+  labs(title = "Distribution of game times for bracket type",
+    x = "Bracket",
+    y = "Game duration (mins)") +
+  coord_flip()
+```
+
+```{r}
+vb_matches %>% 
+  filter(!is.na(duration)) %>% 
+  ggplot(aes(x = factor(gender),
+             y = Game_Time)) +
+    stat_summary(fun = mean, geom = "point",position = position_dodge(width = 0.1)) + 
+    stat_summary(fun.data = mean_sdl, geom = "errorbar",
+                 position = position_dodge(width = 0.1),
+                 fun.args = list(mult = 1), width = 0.1) +
+  labs(title = "Distribution of game times per gender",
+    x = "Gender",
+    y = "Game duration (mins)")
+
+
+
+```
+
+## By Country
+
+Where are most of the games played?
+
+```{r}
+vb_matches %>% 
+  filter(!is.na(duration)) %>% 
+  count(y = country) %>%
+  ggplot(aes(y = fct_reorder(y,n), x = n)) +
+  geom_col()
+
+
+```
+
+
+### World ranking vs. duraton
+
+```{r}
+vb_matches %>%
+  pivot_longer(c(w_rank,l_rank),names_to = "Type",values_to = "t_ranking") %>%
+  mutate(ranking = as.integer(str_extract(t_ranking,"^\\d{1,3}"))) %>%
+  filter(!is.na(ranking)) %>% 
+  ggplot(aes(x = as.integer(ranking),y = Game_Time)) +
+  geom_point(alpha=0.2) +
+  geom_smooth(method = "lm") +
+  facet_grid(Type ~ .)
+
+A <- vb_matches %>%
+  mutate(
+    w_rank = as.integer(str_extract(w_rank,"^\\d{1,3}")),
+    l_rank = as.integer(str_extract(l_rank,"^\\d{1,3}")),
+    d_rank = abs(w_rank - l_rank),
+    ave_rank = (w_rank + l_rank)/2
+    ) %>%
+  filter(!is.na(w_rank),!is.na(l_rank))
+
+A %>% 
+  pivot_longer(c(w_rank,l_rank,d_rank,ave_rank),values_to = "A",names_to = "B") %>% 
+  ggplot(aes(x = A, y = Game_Time)) +
+  geom_point(alpha = 0.2)+
+  geom_smooth(method = "lm")+
+  facet_grid(B ~ .)
+
+A.lm <- lm(data = A, Game_Time ~ w_rank + l_rank + d_rank + ave_rank)
+
+summary(A.lm)
+
+glance(A.lm)
+```
+
+
+## Age
+
+```{r}
+vb_matches %>% count(country)
+
+vb_matches %>% select(contains("age")) %>% ls()
+
+vb_matches %>% 
+     select(matches("age")) %>% 
+     reduce(`+`) %>%
+     mutate(vb_matches, AGE_Sum = .,AGE_Sum = AGE_Sum/4) %>%
+  filter(!is.na(AGE_Sum)) %>% select(AGE_Sum,Game_Time) %>%
+  ggplot(aes(x = AGE_Sum, y = Game_Time)) +
+  geom_smooth(method = "lm") +
+  geom_point(alpha = 0.2)
+```
+
+
+## Height
+
+```{r}
+vb_matches %>% 
+     select(matches("hgt")) %>% 
+     reduce(`+`) %>%
+     mutate(vb_matches, AGE_Sum = .,AGE_Sum = AGE_Sum/4) %>%
+  filter(!is.na(AGE_Sum)) %>% select(AGE_Sum,Game_Time) %>%
+  ggplot(aes(x = AGE_Sum, y = Game_Time)) +
+  geom_smooth(method = "lm") +
+  geom_point(alpha = 0.2)
+```
+
+
+## Country
+
+```{r}
+
+vb_matches %>% 
+  group_by(country) %>% summarise(mean = mean(Game_Time),n = n()) %>% 
+  ggplot(aes(y = fct_reorder(country,mean), x = mean,
+             col = n < 100, size = n)) +
+  geom_vline(data = vb_matches,aes(xintercept = mean(Game_Time))) +
+  geom_point()
+
+```
+
+
+## Prediction
+
+### Create a model tibble with altered data
+
+```{r}
+vb_model <- vb_matches %>% 
+    mutate(
+    ave_age = sum(w_p1_age, w_p2_age, l_p1_age, l_p2_age, na.rm = TRUE) / 4,
+    ave_hgt = sum(w_p1_hgt, w_p2_hgt, l_p1_hgt, l_p2_hgt, na.rm = TRUE) / 4,
+    w_rank = as.integer(str_extract(w_rank,"^\\d{1,3}")),
+    l_rank = as.integer(str_extract(l_rank,"^\\d{1,3}")),
+    d_rank = abs(w_rank - l_rank),
+    bracket_pooled = if_else(str_detect(bracket,"Pool"),"Pool match",bracket),
+    sets = str_extract_all(score,"\\d{1,2}") %>% 
+              map_dbl(~length(.x)/2)
+  ) %>%
+  filter(!is.na(ave_age), !is.na(ave_hgt),!is.na(w_rank),!is.na(l_rank)) %>%
+  mutate_at(vars(34:65),  ~ if_else(is.na(.), 0, .))
+```
+
+
+- Average age
+- Gender
+- Bracket pool
+- Country
+- Tournament? Lots of factors.
+- Rank (Winners, loser, difference)
+- Circuit
+- Height
+- Age
+
+
+### Missing values
+
+```{r}
+vb_matches %>% select(Game_Time,contains("age"),contains("hgt"),contains("rank"),gender,bracket,country,circuit) %>%
+vis_miss(warn_large_data = F)
+```
+
+
+```{r}
+
+scope <- Game_Time ~ ave_age + ave_hgt + gender + bracket_pooled + country + w_rank + l_rank + d_rank + circuit
+
+null_model <- lm(Game_Time ~ 1, data = vb_model)  
+
+  vb.lm.m1 <- lm(null_model, data = vb_model)
+vb.lm.m1 <- step(vb.lm.m1, scope = scope, direction = "both")
+
+tidy_summary(vb.lm.m1) %>% View()
+
+plot(vb.lm.m1)
+
+```
+
+```{r}
+scope <- Game_Time ~ ave_age + ave_hgt + gender + bracket_pooled + w_rank + l_rank + d_rank + circuit
+
+  vb.lm.m2 <- lm(null_model, data = vb_model)
+vb.lm.m2 <- step(vb.lm.m2, scope = scope, direction = "both",verbose = FALSE)
+
+summary(vb.lm.m2)
+tidy_summary(vb.lm.m2)
+
+```
+
+```{r}
+vb_model[c(38591:38592,38584),]
+```
+
+
+
+
+```{r}
+jonos_cv_code <- function(model, data, k = 5){
+  # Split the data
+data_cv <- crossv_kfold(data, k = 5)
+# Fit the model to each training set
+models <- map(data_cv$train, ~lm(model, data = .))
+# Get predition error - gasp in awe - a function in a function.
+get_pred <- function(model, test_data){
+data <- as.data.frame(test_data)
+pred <- add_predictions(data, model)
+return(pred)
+}
+pred <- map2_df(models, data_cv$test, get_pred, .id = "Run")
+# Get MSE
+MSE <- pred %>%
+group_by(Run) %>% summarise(
+MSE = mean( (Game_Time - pred)^2),
+n = n() )
+# Get CV
+CV <- sum(MSE$MSE * MSE$n) / sum(MSE$n)
+return(CV)
+}
+
+glance(vb.lm.m2)$AIC
+
+Model.CV <- tibble(
+  MSE= c(
+  jonos_cv_code(vb.lm.m1,vb_model),
+  jonos_cv_code(vb.lm.m2,vb_model)
+  ),
+  AIC = c(
+    glance(vb.lm.m1)$AIC,
+    glance(vb.lm.m2)$AIC
+    ))
+Model.CV
+```
+
+
+```{r}
+tidy_summary <- function(model){
+  tidy(model) %>%
+  mutate(
+         signif = case_when(
+           p.value < 0.001 ~ "***",
+           p.value < 0.01 ~ "**",
+           p.value < 0.05 ~ "*",
+           TRUE ~ ""),
+  p.value = sprintf("%.5f", p.value),
+         )
+}
+
+```
+
+

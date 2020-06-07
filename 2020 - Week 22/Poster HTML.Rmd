@@ -1,0 +1,117 @@
+---
+title: "**Qualifying in marble races is really important, so why is Mary so bad at it?**"
+output:
+  postr::flex_dashboard_poster:
+    render_print: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(here)
+
+marbles <- readRDS('marbles.RDS') %>% 
+  mutate(date = dmy(date))
+
+theme_global <- theme(plot.title = element_text(hjust = 0.5,size = 18,vjust = 2,),
+                      axis.title.x = element_text(size = 12,vjust = -1),
+                      axis.title.y = element_text(size = 12,angle = 90,vjust = 2),
+                      legend.position="bottom")
+theme_set(theme_global)
+```
+
+## Body row {data-height=290}
+
+### **Qualifying is everything** {data-width=400}
+
+In the grand old sport of marble racing, showing up for qualifying is paramount. There's a clear positive correlation between qualifying position and the average number of points obtained at the end of the race (see fig 1). If you don't show up for qually, you're in for a bad time come race-day. Mary's speeds in qualifying, the real opportunity to see how each marble stacks up against their competitors, are dismal (see below, with Mary highlighted in blue). Especially at Greenstone and O'raceway where Mary qualified last by a considerable margin. Mary's race speeds are also sub-par, but that's for another day (don't even get me started on the DNF). She placed last (P16), in all but 1 one of their qualifying events. No other marble had more than two of the same qualifying results (see fig 2). Mary had 3. If all the marbles are the same, is this behaviour unusual?
+
+### **Racing outcomes based on qualifying result** {data-width=400}
+
+```{r echo=FALSE, fig.width=7, dpi=300, fig.cap="Figure 1 - Racing outcomes"}
+marbles %>% 
+  filter(str_detect(race,"R")) %>%
+  left_join(marbles %>% filter(str_detect(race,"Q")) %>%
+    select(date,marble_name,pole,site),
+            by = c("site" = "site","marble_name" = "marble_name")) %>% 
+  group_by(pole.y) %>% summarise(mean = mean(points)) %>% 
+  mutate(pos = as.integer(str_extract(pole.y,"\\d+"))) %>%
+  ggplot(aes(x = fct_reorder(pole.y,pos),y = mean)) +
+  geom_point(size = 3) +
+  labs(x = "Qualifying position",
+       y = "Average points",
+       title = "Average points obtained from starting position")
+```
+
+### **Racer qualifying outcomes** {data-width=400}
+
+```{r echo=FALSE, fig.width=7, dpi=300,fig.cap="Figure 2 - Qualifying results"}
+marbles %>% 
+  filter(str_detect(race,"Q")) %>%
+  group_by(pole,marble_name) %>% summarise(n = n()) %>% 
+  mutate(pos = as.integer(str_extract(pole,"\\d+")),
+         marble_name = if_else(n>1,marble_name,""),
+         occurances = if_else(n == 1,"1 occurance",paste(n,"occurances"))) %>% 
+  ggplot(aes(x = fct_reorder(pole,pos), y = n,fill = occurances)) + 
+  geom_col(col = "white") +
+  geom_text(aes(label = marble_name),
+            col = "white",
+            angle = 90,
+            position = position_stack(vjust = 0.5),
+            size = 4.5) +
+  scale_fill_brewer(palette = "Greens",name = "") +
+  labs(title = "Qualifying results of each competitor",
+    x = "Qualifying position",
+       y = "Count") +
+  theme_minimal() +
+  theme_global
+```
+
+## Body row {data-height=350}
+
+### **Qualifying performance** {data-width=600}
+
+<!-- Qualifying speeds -->
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=9}
+mary_site <- marbles %>% 
+  filter(marble_name == "Mary") %>% 
+  distinct(site) %>% pull(site)
+
+marbles %>% 
+  filter(site %in% mary_site,!is.na(avg_time_lap)) %>%
+  mutate(race_type = if_else(str_detect(race,"R") == TRUE,"Race","Qualification")) %>% 
+   mutate(speed = track_length_m/avg_time_lap*3.6,
+          col_label = case_when(
+            marble_name == "Mary" ~ "Mary",
+            marble_name != "Mary" ~ "Not Mary"
+          ),
+          DNF = if_else(is.na(avg_time_lap),"DNF","")
+          ) %>%
+  ggplot(aes(y = marble_name, x = speed, col = col_label)) +
+  geom_point(size = 2) + 
+  facet_grid(race_type~site,scales = "free") +
+  scale_color_manual(values = c("Not Mary" = "#ABABAB","Mary" = "dodgerblue3"))+
+  labs(title = "Average lap times for qualifying and race day",
+       x = "Average speed (km/h)",
+       y = "Marble name",
+       colour = "")
+```
+
+### Is this result unusual?
+
+To consider whether 3 out of 4 P16 results were usual we can look at combinatorics to answer that question, that is - did we see more 3 out 4 results than we expected to see? This assumes that there is an equal chance that any marble will place in any qualifying position in any given qualifying event. This can be considered similar to drawing cards from a well shuffled deck of cards etc. So if each event is independent from one another, and we don't care about the order of the results, the probability of a single marble getting 3 of the same result is given below. The numerator is the number of ways a marble can achieve the 3 out of 4 result, and the denominator is the total number of different **combinations** of results for 16 marbles in 4 races.
+
+$$
+Combinations = \frac{(1 \times 1 \times1\times(n - 1))}{\frac{(n + r - 1)!}{r!(n - 1)!}}
+=\frac{15}{3876} = 0.387 \%
+$$
+So there is a 0.387% chance of this occurring for a given marble in a given 4 race season. So what is the expected number of 3 out of 4 results in a season with 32 competitors?
+
+$$
+E[3 \space out \space of \space 4] = np
+= 32 \times 0.00387
+= 0.124 \space occurances
+$$
+
+So it's approximately 0.12 occurrences a season, or once every 8 seasons or so. So, did Mary throw the qualifying events? Or was this just an unlikely occurrence, and Mary is a victim of bad luck? Who knows. One thing is for sure, if Mary doesn't put the work in, to improve their qualifying performance, Mary's future in the sport seems on borrowed time.

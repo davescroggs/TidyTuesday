@@ -1,0 +1,113 @@
+---
+title: Generate Reproducible & Live HTML and PDF Conference Posters Using RMarkdown
+column_number: 2
+output: 
+  posterdown::posterdown_html:
+    self_contained: false
+---
+
+
+# Test
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(here)
+
+marbles <- readRDS('marbles.RDS') %>% 
+  mutate(date = dmy(date))
+```
+
+<style>
+.vl {
+  border-left: 3px solid black;
+  left: 50%;
+  margin-left: -3px;
+}
+</style>
+
+<style>
+.section h4 {
+    break-before: column;
+}
+</style>
+
+
+<!-- Why pole is important -->
+# Plot 1
+
+```{r echo=FALSE, message=FALSE, warning=FALSE,out.width='80%'}
+marbles %>% 
+  filter(str_detect(race,"R")) %>%
+  left_join(marbles %>% filter(str_detect(race,"Q")) %>%
+    select(date,marble_name,pole,site),
+            by = c("site" = "site","marble_name" = "marble_name")) %>% 
+  group_by(pole.y) %>% summarise(mean = mean(points)) %>% 
+  mutate(pos = as.integer(str_extract(pole.y,"\\d+"))) %>%
+  ggplot(aes(x = fct_reorder(pole.y,pos),y = mean)) +
+  geom_point() +
+  labs(x = "Qualifying position",
+       y = "Average points",
+       title = "Average points obtained from starting position") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+In the grand old sport of marble racing, showing up for qualifying is paramount. There's a clear positive correlation between qualifying position and the average number of points obtained at the end of the race.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE,fig.width=5, fig.height=3.5}
+marbles %>% 
+  filter(str_detect(race,"Q")) %>%
+  group_by(pole,marble_name) %>% summarise(n = n()) %>% 
+  mutate(pos = as.integer(str_extract(pole,"\\d+")),
+         marble_name = if_else(n>1,marble_name,""),
+         occurances = if_else(n == 1,"1 occurance",paste(n,"occurances"))) %>% 
+  ggplot(aes(x = fct_reorder(pole,pos), y = n,fill = occurances)) + 
+  geom_col(col = "white") +
+  geom_text(aes(label = marble_name),
+            col = "white",
+            angle = 90,
+            position = position_stack(vjust = 0.5),
+            size = 3) +
+  scale_fill_brewer(palette = "Greens",name = "") +
+  labs(title = "Qualifying results of each competitor",
+    x = "Qualifying position",
+       y = "Count") +
+  theme_minimal() +
+  theme(legend.position="bottom")
+```
+
+
+<div class="section"></div>
+
+<!-- Qualifying speeds -->
+# Plot 1
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+mary_site <- marbles %>% 
+  filter(marble_name == "Mary") %>% 
+  distinct(site) %>% pull(site)
+
+marbles %>% 
+  filter(site %in% mary_site,!is.na(avg_time_lap)) %>%
+  mutate(race_type = if_else(str_detect(race,"R") == TRUE,"Race","Qualification")) %>% 
+   mutate(speed = track_length_m/avg_time_lap*3.6,
+          col_label = case_when(
+            marble_name == "Mary" ~ "Mary",
+            marble_name != "Mary" ~ "Not Mary"
+          ),
+          DNF = if_else(is.na(avg_time_lap),"DNF","")
+          ) %>%
+  ggplot(aes(y = marble_name, x = speed, col = col_label)) +
+  geom_point() + 
+  facet_grid(race_type~site,scales = "free") +
+  scale_color_manual(values = c("Not Mary" = "#ABABAB","Mary" = "dodgerblue3"))+
+  labs(title = "Average lap times for qualifying and race day",
+       x = "Average speed (km/h)",
+       y = "Marble name",
+       colour = "")
+```
+
+
+<!-- Is this unusual? -->
+

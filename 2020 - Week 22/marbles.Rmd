@@ -1,0 +1,268 @@
+---
+title: "Marble Races - Game of Kings"
+author: "David Scroggs"
+date: "02/06/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# marbles <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-06-02/marbles.csv') %>% mutate(date = dmy(date))
+# saveRDS(marbles,"2020 - Week 22/marbles.RDS")
+library(tidyverse)
+library(lubridate)
+library(here)
+
+marbles <- readRDS('2020 - Week 22/marbles.RDS') %>% 
+  mutate(date = dmy(date))
+
+```
+
+
+
+How to make a poster in R
+
+https://wytham.rbind.io/post/making-a-poster-in-r/
+
+
+```{r}
+marbles %>%
+  group_by(team_name,marble_name) %>%
+  summarise(n = n()) %>%
+  pivot_wider(names_from = team_name,values_from = n,values_fill = list(n = 0)) %>%
+  View()
+
+marbles %>%
+  group_by(team_name,marble_name) %>%
+  summarise(n = n()) %>%
+  ggplot(aes(x=team_name,y=marble_name)) +
+  geom_point(aes(fill = is.na(n))) +
+  scale_fill_brewer()
+```
+
+
+```{r}
+c1_marbles <- marbles %>% 
+  group_by(site,marble_name) %>% 
+  summarise(n = n()) %>%
+  spread(site,n) %>% 
+  arrange(`Savage Speedway`,Greenstone,`Midnight Bay`) %>%
+  pull(marble_name)
+
+site_dates <- marbles %>%
+  group_by(date,site) %>% summarise(n = n()) %>%
+  arrange(date) %>% ungroup() %>% distinct(site) %>% pull(site)
+
+marbles %>%
+  ggplot(aes(factor(site,levels = site_dates),
+             factor(marble_name,levels = c1_marbles),
+             fill = team_name)) + 
+  geom_tile(fill = 'black') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90),
+        panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.border = element_rect(color = "black",fill = FALSE)) +
+  labs(y = "Marble Name",
+       x = "Race Site")
+```
+
+```{r}
+marbles %>%
+  ggplot(aes(factor(site,levels = site_dates),
+             team_name,
+             fill = marble_name)) + 
+  geom_tile() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90),
+        panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.border = element_rect(color = "black",fill = FALSE)) +
+  labs(y = "Marble Name",
+       x = "Race Site")
+```
+
+
+### Race Calendar
+
+
+```{r}
+marbles %>% 
+  mutate(
+    speed = track_length_m/avg_time_lap*3.6,
+    race_type = case_when(
+    str_detect(race,"Q") ~ "Qualy",
+    str_detect(race,"R") ~ "Race",
+    TRUE ~ "Unknown")
+    ) %>% 
+  group_by(race_type,marble_name) %>%
+  summarise(mean_sp = mean(speed)) %>% 
+  ggplot(aes(x = race_type,y = mean_sp,group = marble_name,col = marble_name)) +
+  geom_point(alpha = 0.6) +
+  geom_line() +
+  theme_minimal()
+
+
+```
+
+
+
+```{r}
+marbles %>% 
+  filter(str_detect(race,"R")) %>%
+  left_join(marbles %>% filter(str_detect(race,"Q")) %>%
+    select(date,marble_name,pole,site),
+            by = c("site" = "site","marble_name" = "marble_name")) %>% 
+  group_by(pole.y) %>% summarise(mean = mean(points)) %>% 
+  mutate(pos = as.integer(str_extract(pole.y,"\\d+"))) %>%
+  ggplot(aes(x = fct_reorder(pole.y,pos),y = mean)) +
+  geom_point() +
+  theme_bw() +
+  labs(x = "Qualifying position",
+       y = "Average points",
+       title = "Average points obtained from starting position")
+```
+
+
+
+
+```{r}
+mary_site <- marbles %>% 
+  filter(marble_name == "Mary") %>% 
+  distinct(site) %>% pull(site)
+
+marble_pace <- marbles %>% 
+  filter(site %in% mary_site) %>%
+  group_by(marble_name) %>% summarise(ave_pace = mean(avg_time_lap,na.rm = TRUE)) %>% 
+  arrange(-ave_pace) %>% pull(marble_name)
+
+marbles %>% 
+  filter(site %in% mary_site,!is.na(avg_time_lap)) %>%
+  mutate(race_type = if_else(str_detect(race,"R") == TRUE,"Race","Qualification")) %>% 
+   mutate(speed = track_length_m/avg_time_lap*3.6,
+          col_label = case_when(
+            marble_name == "Mary" ~ "Mary",
+            marble_name != "Mary" ~ "Not Mary"
+          ),
+          DNF = if_else(is.na(avg_time_lap),"DNF","")
+          ) %>%
+  ggplot(aes(y = marble_name, x = speed, col = col_label)) +
+  geom_point() + 
+  #annotate(geom = "circle", y = "Mary",site = "Hivedrive",race_type = "Race", y = 1.55, label = "Mary", color = "red") +
+  facet_grid(race_type~site,scales = "free") +
+  scale_color_manual(values = c("Not Mary" = "#ABABAB","Mary" = "dodgerblue3"))+
+  labs(title = "Average lap times for qualifying and race day",
+       x = "Average speed (km/h)",
+       y = "Marble name",
+       colour = "")
+```
+Keep
+
+```{r}
+ marbles %>% 
+  filter(str_detect(race,"Q")) %>%
+  group_by(pole,marble_name) %>% summarise(n = n()) %>% 
+  mutate(pos = as.integer(str_extract(pole,"\\d+"))) %>%
+  ggplot(aes(x = fct_reorder(pole,pos), y = n,fill = marble_name)) + 
+  geom_col(col = "white") +
+  annotate(geom = "text", x = "P16", y = 6.5, label = "Mary", color = "white",
+             angle = 90) +
+  scale_fill_grey() +
+  labs(title = "Qualifying results of each competitor",
+    x = "Qualifying position",
+       y = "Count")
+```
+
+```{r}
+marbles %>% 
+  filter(str_detect(race,"Q")) %>%
+  group_by(pole,marble_name) %>% summarise(n = n()) %>% 
+  mutate(pos = as.integer(str_extract(pole,"\\d+")),
+         marble_name = if_else(n>1,marble_name,""),
+         occurances = if_else(n == 1,"1 occurance",paste(n,"occurances"))) %>% 
+  ggplot(aes(x = fct_reorder(pole,pos), y = n,fill = occurances)) + 
+  geom_col(col = "white") +
+  geom_text(aes(label = marble_name),
+            col = "white",
+            angle = 90,
+            position = position_stack(vjust = 0.5)) +
+  # annotate(geom = "text", x = "P16", y = 1.5, label = "Mary", color = "white",
+  #            angle = 90) +
+  scale_fill_brewer(palette = "Greens") +
+  labs(title = "Qualifying results of each competitor",
+    x = "Qualifying position",
+       y = "Count") +
+  theme_minimal()
+```
+
+
+```{r}
+mbls.sum_stats <- marbles %>% 
+  mutate(race_type = if_else(str_detect(race,"Q"),"Qualify","Race")) %>%
+  filter(race_type == "Qualify") %>% 
+  group_by(date,site,race_type) %>% 
+  summarise(mean = mean(avg_time_lap,na.rm = TRUE),
+            sd = sd(avg_time_lap,na.rm = TRUE))
+
+marbles %>% 
+  mutate(race_type = if_else(str_detect(race,"Q"),"Qualify","Race")) %>%
+  filter(race_type == "Qualify") %>%
+  left_join(mbls.sum_stats,by = c("date" = "date","site"="site","race_type" = "race_type")) %>% 
+  group_by(date,site,race_type) %>% 
+  mutate(norm_score = (avg_time_lap - mean)/sd,
+         date_site = paste(date,site,collapse = "_")) %>% 
+  ggplot(aes(x = norm_score)) + 
+  geom_density()
+  
+
+```
+
+
+```{r}
+Count.3 = 0
+Count.2 = 0
+Count.1 = 0
+seasons = 10000
+for (ii in 1:seasons) {
+  for (i in 1:32) {
+    AA <- tibble(A = sample(1:16, 4, replace = T))
+    if (sum((AA$A == 16) * 1) == 3) {
+      Count.16 = Count.16 + 1
+      rm(AA)
+    }
+  }
+}
+
+Count.16/(seasons*32*4)
+
+```
+
+Combinatorics
+Expected number of 3-peats = prob of 3 of the same 
+
+16^4 ways you can place.
+1 x 1 x 1 x 15 + 15 x 1 x 1 x1 = 30 ways of placing 16th 3 times in a season
+
+
+```{r}
+
+L = as.character(1:16)
+
+A = as.tibble(gtools::combinations(16,4,L,repeats.allowed = TRUE))
+
+A %>% filter((V1 == 16 & V2 ==16 & V3 == 16) | (V4 == 16 & V2 ==16 & V3 == 16) |
+               (V1 == 16 & V4 ==16 & V3 == 16) | (V1 == 16 & V2 ==16 & V4 == 16)) %>% 
+  View()
+
+A %>% mutate_all(as.integer) %>%  arrange(V1,V2,V3,V4) %>% View()
+
+# (1 x 1 x 1 x (16 - 1))
+# ----------------------
+#   (n + r - 1)!
+#   ------------
+#   r!(n - 1)!
+```
+

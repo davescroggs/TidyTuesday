@@ -35,6 +35,8 @@ vb_matches %>%
   labs(title = "Distribution of game duration",
        y = "Counts",
        x = "Game Time (minutes)")
+
+
   
 ## ---------------------------##
 ##    Predict Game Duration   ##

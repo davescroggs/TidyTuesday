@@ -7,13 +7,231 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gganimate)
 ```
 
-```{r}
+```{r warning=FALSE}
 blackpast <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-06-16/blackpast.csv')
 census <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-06-16/census.csv')
 slave_routes <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-06-16/slave_routes.csv')
 african_names <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-06-16/african_names.csv')
-
 ```
 
+
+
+```{r}
+african_names %>% 
+  ggplot(aes(x = year_arrival)) + geom_bar()
+```
+```{r}
+census %>% 
+  count(region,year,wt = black_slaves) %>% 
+  arrange(year,region) %>%
+  mutate(pop = n/1E6) %>% 
+  ggplot(aes(x = year,y = pop,group = region,col = region)) +
+  geom_point() +
+  geom_line() +
+  labs(title = "Black slave population over time",
+       x = "Year",
+       y = "Black slave population (millions") +
+  scale_x_continuous(breaks = seq(1780,1870,10))
+```
+
+```{r}
+slave_routes %>% 
+  count(captains_name,port_origin,wt = n_slaves_arrived,sort = T) %>% View()
+```
+
+
+```{r}
+
+slave_routes %>% 
+  filter(!is.na(captains_name)) %>% 
+  count(captains_name,year_arrival,wt = n_slaves_arrived,sort = T) %>% 
+  head(50) %>% 
+  ggplot(aes(x = year_arrival,fill = n,y = fct_reorder(captains_name,n))) +
+  geom_tile()
+
+
+slave_routes %>% 
+  filter(!is.na(captains_name),!is.na(n_slaves_arrived)) %>%
+  group_by(captains_name,year_arrival) %>% 
+  summarise(pop = sum(n_slaves_arrived)) %>%
+  ungroup() %>% 
+  add_count(captains_name,name = "voyages") %>%
+  filter(voyages >10) %>%
+  ggplot(aes(x = year_arrival,fill = pop,y = fct_reorder(captains_name,year_arrival,.fun = min))) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  theme_bw()
+```
+
+
+```{r}
+slave_routes %>% 
+  filter(!is.na(captains_name),!is.na(n_slaves_arrived),captains_name != "Smith, John") %>%
+  arrange(captains_name,year_arrival) %>% 
+  add_count(captains_name,wt = n_slaves_arrived,name = "pop") %>% 
+  group_by(captains_name) %>% 
+  mutate(years_active = year_arrival - min(year_arrival),
+         cum_pop = cumsum(pop),
+         max_pop = max(cum_pop)) %>%
+  filter(max_pop >50000) %>%
+  ggplot(aes(x = years_active,y = cum_pop,group = captains_name,col = captains_name)) + 
+  geom_point() +
+  geom_line()
+```
+
+```{r}
+african_names %>% 
+  mutate(sex = case_when(
+    gender == "Boy" | gender == "Man" ~ "male",
+    gender == "Girl" | gender == "Woman" ~ "female",
+    TRUE ~ "NA"
+  )) %>% 
+  filter(!is.na(age)) %>% 
+  ggplot(aes(x = age)) +
+  geom_histogram(binwidth = 1) +
+  facet_grid(sex~.)+
+  scale_x_continuous(breaks = seq(0,80,5)) +
+  transition_time(year_arrival) +
+  ease_aes('linear') +
+  labs(title = 'Year: {frame_time}')
+```
+
+
+
+
+```{r}
+tot_pop_labels <- african_names %>% 
+   mutate(decade = case_when(
+     between(year_arrival,1800,1810) ~ "1800-1810",
+     between(year_arrival,1810,1820) ~ "1810-1820",
+     between(year_arrival,1820,1830) ~ "1820-1830",
+     between(year_arrival,1830,1840) ~ "1830-1840",
+     between(year_arrival,1840,1850) ~ "1840-1850",
+     between(year_arrival,1850,1860) ~ "1850-1860",
+     between(year_arrival,1860,1870) ~ "1860-1870"
+   )) %>%
+  filter(!is.na(age)) %>% 
+  count(decade,name = "tot_pop") %>%
+  mutate(tot_pop_pct = tot_pop/max(tot_pop))
+
+x_just = 55
+
+african_names %>%
+  mutate(sex = case_when(
+    gender == "Boy" | gender == "Man" ~ "Male",
+    gender == "Girl" | gender == "Woman" ~ "Female",
+    TRUE ~ "Not recorded"
+  ),
+  decade = case_when(
+    between(year_arrival,1800,1810) ~ "1800-1810",
+    between(year_arrival,1810,1820) ~ "1810-1820",
+    between(year_arrival,1820,1830) ~ "1820-1830",
+    between(year_arrival,1830,1840) ~ "1830-1840",
+    between(year_arrival,1840,1850) ~ "1840-1850",
+    between(year_arrival,1850,1860) ~ "1850-1860",
+    between(year_arrival,1860,1870) ~ "1860-1870"
+  )) %>%
+  filter(!is.na(age),age <= 50) %>%
+  add_count(decade,name = "tot_pop") %>%
+  mutate(tot_pop_pct = tot_pop/max(tot_pop)) %>%
+  ggplot(aes(x = age)) +
+  geom_histogram(aes(fill = sex),breaks = seq(0,80,1)) +
+  geom_segment(aes(x = x_just, xend = x_just, y = 0, yend = tot_pop_pct*2750,colour = "Population freed"), size = 5, alpha = 0.6) +
+  geom_text(aes(x = x_just, y = x_just,label = scales::comma(tot_pop)),col = "black",angle = -90,size = 3.5,data = tot_pop_labels,hjust = "right") +
+  facet_grid(decade ~.) +
+  scale_x_continuous(breaks = seq(0,45,5)) +
+  scale_y_continuous(breaks = seq(0,2750,1000)) +
+  scale_fill_manual(values = c("Female" = "#EE1289","Male" = "#1C86EE","Not recorded" = "#FFD700")) +
+  scale_colour_manual(values = c("Population freed" = "#7DDDB6"),name = "Decade total")+
+  coord_cartesian(xlim = c(0, 50),clip = 'off') + 
+  theme_bw() +
+  labs(title = "Age distribution of freed slaves by decade from 1800-1850",
+       y = "Number freed",
+       x = "Age (years)",
+       fill = NULL) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+Week 25 of #tidytuesday was an eye-opener. All the datasets were interesting but I found the "african_names" dataset most interesting. I looked at the ages of the freed slaves over 5 decades.
+
+
+
+```{r}
+african_names %>%
+  mutate(sex = case_when(
+    gender == "Boy" | gender == "Man" ~ "Male",
+    gender == "Girl" | gender == "Woman" ~ "Female",
+    TRUE ~ "Not recorded"
+  ),
+  decade = case_when(
+    between(year_arrival,1800,1810) ~ "1800-1810",
+    between(year_arrival,1810,1820) ~ "1810-1820",
+    between(year_arrival,1820,1830) ~ "1820-1830",
+    between(year_arrival,1830,1840) ~ "1830-1840",
+    between(year_arrival,1840,1850) ~ "1840-1850",
+    between(year_arrival,1850,1860) ~ "1850-1860",
+    between(year_arrival,1860,1870) ~ "1860-1870"
+  )) %>%
+  filter(!is.na(age),decade == "1830-1840") %>% 
+  ggplot(aes(x = age,fill = sex)) +
+  geom_histogram(breaks = seq(0,80,1)) +
+  scale_x_continuous(breaks = seq(0,80,5)) +
+  scale_fill_manual(values = c("Female" = "#EE1289","Male" = "#1C86EE","Not recorded" = "#FFD700")) +
+  coord_cartesian(xlim = c(0, 50)) + 
+  theme_bw() +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(title = "Age distribution of freed slaves in the decade 1830-1840",
+       y = "Number freed",
+       x = "Age (years)",
+       fill = NULL) +
+  annotate(geom = "segment", x = 37, y = 1100, xend = 30, yend = 800,
+           arrow = arrow(length = unit(2, "mm"))) +
+  annotate(geom = "text", x = 37.5, y = 1100,
+           label = "Sharp fall in numbers\nover the age of 30", hjust = "left",
+           size = 4) +
+  annotate(geom = "segment", x = 15, y = 1500, xend = 19, yend = 1500,arrow = arrow(length = unit(2, "mm"))) +
+  annotate(geom = "segment", x = 15, y = 1500, xend = 13, yend = 1500,arrow = arrow(length = unit(2, "mm"))) +
+  annotate(geom = "text", x = 18, y = 2000,
+           label = "Dip in numbers in\n14-19 age bracket ", hjust = "centre",
+           size = 4)
+```
+
+The decade from 1830-1840 showed this behaviour really clearly. There is also a trend where the even numbers seem to be higher than previous and following odd numbers. I'm unsure why that's so.
+
+```{r}
+african_names %>%
+  mutate(sex = case_when(
+    gender == "Boy" | gender == "Man" ~ "Male",
+    gender == "Girl" | gender == "Woman" ~ "Female",
+    TRUE ~ "Not recorded"
+  ),
+  decade = case_when(
+    between(year_arrival,1800,1810) ~ "1800-1810",
+    between(year_arrival,1810,1820) ~ "1810-1820",
+    between(year_arrival,1820,1830) ~ "1820-1830",
+    between(year_arrival,1830,1840) ~ "1830-1840",
+    between(year_arrival,1840,1850) ~ "1840-1850",
+    between(year_arrival,1850,1860) ~ "1850-1860",
+    between(year_arrival,1860,1870) ~ "1860-1870"
+  )) %>%
+  filter(!is.na(age),age <= 50) %>%
+  add_count(decade,name = "tot_pop") %>%
+  mutate(tot_pop_pct = tot_pop/max(tot_pop)) %>%
+  ggplot(aes(x = age)) +
+  geom_density(aes(fill = fct_reorder(decade,year_arrival,min)),alpha = 0.5) +
+  scale_x_continuous(breaks = seq(0,45,5)) +
+  #scale_fill_manual(values = c("Female" = "#EE1289","Male" = "#1C86EE","Not recorded" = "#FFD700")) +
+  scale_colour_manual(values = c("Population freed" = "#7DDDB6"),name = "Decade total")+
+  coord_cartesian(xlim = c(0, 50),clip = 'off') + 
+  theme_bw() +
+  labs(title = "Age distribution of freed slaves by decade from 1800-1850",
+       y = "Density",
+       x = "Age (years)",
+       fill = "Decade") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+The distribution of the ages is relatively similar over the 5 decades. There is clear bi-modal bi-modal behaviour and the number of people over the age of 30 falls sharply.
